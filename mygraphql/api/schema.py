@@ -1,6 +1,9 @@
 import graphene
+from graphene import relay
+from graphene_django.filter import DjangoFilterConnectionField
 from graphene_django.types import DjangoObjectType
 from graphql_jwt.decorators import login_required
+from graphql_relay import from_global_id
 
 from api.models import Movies, Director
 import graphql_jwt
@@ -21,9 +24,22 @@ class DirectorType(DjangoObjectType):
         model = Director
 
 
+# just for relay implementation
+class MovieNode(DjangoObjectType):
+    class Meta:
+        model = Movies
+        filter_fields = {
+            'title': ['exact', 'icontains', ],
+            'year': ['exact', ]
+        }
+        interfaces = (relay.Node, )
+
+
 class Query(graphene.ObjectType):
+    all_movies2 = DjangoFilterConnectionField(MovieNode) # relray type
     all_movies = graphene.List(MovieType)
     movie = graphene.List(MovieType, id=graphene.Int(), title=graphene.String())
+    movie2 = relay.Node.Field(MovieNode)
 
     all_directors = graphene.List(DirectorType)
 
@@ -90,6 +106,23 @@ class MovieUpdateMutation(graphene.Mutation):
         return MovieUpdateMutation(movie=movie)
 
 
+class MovieUpdateMutationRelray(relay.ClientIDMutation):
+    class Input:
+        title = graphene.String()
+        id = graphene.ID(required=True)
+
+    movie = graphene.Field(MovieType)
+
+    @classmethod
+    def mutate_and_get_payload(cls, root, info, id, title):
+        movie = Movies.objects.get(pk=from_global_id(id)[1])
+        if title is not None:
+            movie.title = title
+        movie.save()
+
+        return MovieUpdateMutationRelray(movie=movie)
+
+
 class MovieDeleteMutation(graphene.Mutation):
     class Arguments:
         id = graphene.Int()
@@ -108,4 +141,5 @@ class Mutation:
     verify_token = graphql_jwt.Verify.Field()
     create_movie = MovieCreateMutation.Field()
     update_movie = MovieUpdateMutation.Field()
+    update_movie2 = MovieUpdateMutationRelray.Field()
     delete_movie = MovieDeleteMutation.Field()
